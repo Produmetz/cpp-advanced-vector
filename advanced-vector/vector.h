@@ -22,18 +22,12 @@ public:
     RawMemory& operator=(const RawMemory& rhs) = delete;
     
     RawMemory(RawMemory&& other) noexcept {
-        buffer_ = other.buffer_;
-        capacity_ = other.capacity_;
-        other.buffer_ = nullptr;
-        other.capacity_ = 0;
+        Swap(other);
     }
 
     RawMemory& operator=(RawMemory&& rhs) noexcept {
         if (this != &rhs) {
             Swap(rhs);
-            rhs.Deallocate(rhs.buffer_);
-            rhs.buffer_ = nullptr;
-            rhs.capacity_ = 0;
         }
         return *this;
     }
@@ -127,15 +121,7 @@ public:
    
     template <typename Type>
     void PushBack(Type&& value) {
-        if (size_ == Capacity()) {
-            RawMemory<T> new_data(size_ == 0 ? 1 : size_ * 2);
-            new (new_data + size_) T(std::forward<Type>(value));
-            MoveOrCopyData(new_data, data_);
-        }
-        else {
-            new (data_ + size_) T(std::forward<Type>(value));
-        }
-        ++size_;
+        EmplaceBack(std::forward<Type>(value));
     }
 
 
@@ -161,30 +147,20 @@ public:
         ++size_;
     };*/
     void PopBack() /* noexcept */{
-        //std::destroy(data_[size_ - 1], data_);
+        if (size_ == 0) return; 
         std::destroy_n(data_.GetAddress() + size_ - 1, 1);
         --size_;
     };
     
     Vector& operator=(const Vector& rhs) {
         if (this != &rhs) {
+            //Vector rhs_copy(rhs);
             if (rhs.size_ > data_.Capacity()) {
                 /* Применить copy-and-swap */
                 Vector rhs_copy(rhs);
                 Swap(rhs_copy);
-            }
-            else {
-                /* Скопировать элементы из rhs, создав при необходимости новые
-                   или удалив существующие */
-                if (rhs.size_ < size_) {
-                    std::copy(rhs.data_.GetAddress(), rhs.data_.GetAddress() + rhs.size_, data_.GetAddress());
-                    std::destroy_n(data_.GetAddress() + rhs.size_, size_ - rhs.size_);
-                }
-                else {
-                    std::copy(rhs.data_.GetAddress(), rhs.data_.GetAddress() + size_, data_.GetAddress());
-                    std::uninitialized_copy_n(rhs.data_.GetAddress() + size_, rhs.size_ - size_, data_.GetAddress() + size_);
-                }
-                size_ = rhs.size_;
+            }else {
+                Copy(rhs);
             }
         }
         return *this;
@@ -228,8 +204,9 @@ public:
 
     template <typename... Args>
     iterator Emplace(const_iterator pos, Args&&... args){
+        assert(pos >= begin() && pos <= end());
         size_t shift = std::distance(cbegin(), pos);
- 
+
         if (size_ + 1 > Capacity()) {
             
             RawMemory<T> new_data(size_ == 0 ? 1 : size_ * 2);
@@ -273,7 +250,7 @@ public:
         return begin() + shift;
     };
     iterator Erase(const_iterator pos) /*noexcept(std::is_nothrow_move_assignable_v<T>)*/{
-
+        assert(pos >= begin() && pos <= end());
         std::move(begin() + (pos - begin()) + 1, end(), begin() + (pos - begin()));
         std::destroy_at(end() - 1);
         --size_;
@@ -316,6 +293,8 @@ public:
         data_.Swap(other.data_);
         std::swap(size_, other.size_);
     }
+    
+
     template <typename... Args>
     T& EmplaceBack(Args&&... args){
         
@@ -334,6 +313,21 @@ private:
     RawMemory<T> data_;
     size_t size_ = 0;
 
+
+    void Copy(const Vector& rhs){
+        /* Скопировать элементы из rhs, создав при необходимости новые
+           или удалив существующие */
+        std::copy(rhs.data_.GetAddress(), rhs.data_.GetAddress() + std::min(rhs.size_, size_), data_.GetAddress());
+        if (rhs.size_ < size_) {
+            //std::copy(rhs.data_.GetAddress(), rhs.data_.GetAddress() + rhs.size_, data_.GetAddress());
+            std::destroy_n(data_.GetAddress() + rhs.size_, size_ - rhs.size_);
+        }
+        else {
+            //std::copy(rhs.data_.GetAddress(), rhs.data_.GetAddress() + size_, data_.GetAddress());
+            std::uninitialized_copy_n(rhs.data_.GetAddress() + size_, rhs.size_ - size_, data_.GetAddress() + size_);
+        }
+        size_ = rhs.size_;
+    }
 
     void MoveOrCopyData(RawMemory<T> &new_data, RawMemory<T> &data){
         if constexpr (std::is_nothrow_move_constructible_v<T> || !std::is_copy_constructible_v<T>) {
